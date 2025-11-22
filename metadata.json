@@ -1,0 +1,5 @@
+{
+  "name": "Copy of MarketScout AI",
+  "description": "A market intelligence tool that recursively analyzes product categories, brand positioning, and specific product details using Gemini with Google Search grounding.",
+  "requestFramePermissions": []
+}
