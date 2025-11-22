@@ -1,10 +1,9 @@
-
 import React, { useState, useMemo } from 'react';
 import { Product } from '../types';
 import { Calendar, DollarSign, Activity, ThumbsUp, ThumbsDown, BarChart2, List } from './Icons';
 import { 
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, 
-  ScatterChart, Scatter, ZAxis, CartesianGrid, Legend 
+  ScatterChart, Scatter, ZAxis, CartesianGrid, ReferenceLine, Label
 } from 'recharts';
 
 interface ProductListProps {
@@ -34,6 +33,21 @@ export const ProductList: React.FC<ProductListProps> = ({ brandName, products })
     }
   }, [availableSpecs, selectedSpec]);
 
+  // Calculate averages for Quadrants
+  const stats = useMemo(() => {
+    if (products.length === 0) return { avgPrice: 0, avgScore: 0, maxPrice: 0, minPrice: 0 };
+    const totalScore = products.reduce((sum, p) => sum + p.sentiment_score, 0);
+    const totalPrice = products.reduce((sum, p) => sum + p.price_val, 0);
+    const prices = products.map(p => p.price_val);
+    
+    return {
+      avgPrice: Math.round(totalPrice / products.length),
+      avgScore: Number((totalScore / products.length).toFixed(1)),
+      maxPrice: Math.max(...prices),
+      minPrice: Math.min(...prices)
+    };
+  }, [products]);
+
   // Prepare data for charts
   const chartData = products.map(p => ({
     name: p.model_name.length > 10 ? p.model_name.substring(0, 10) + '...' : p.model_name,
@@ -41,8 +55,9 @@ export const ProductList: React.FC<ProductListProps> = ({ brandName, products })
     score: p.sentiment_score,
     price: p.price_val,
     priceDisplay: p.price_range,
+    release: p.release_date,
+    positioning: p.positioning,
     specValue: p.specs && selectedSpec ? p.specs[selectedSpec] : 0,
-    rawSpecs: p.specs
   }));
 
   // Helper to determine if a spec value is numeric for bar chart
@@ -96,51 +111,105 @@ export const ProductList: React.FC<ProductListProps> = ({ brandName, products })
       {viewMode === 'charts' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-fade-in">
           
-          {/* Chart 1: Price vs Sentiment Scatter */}
-          <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-6 col-span-1 lg:col-span-2">
-            <h4 className="text-lg font-semibold text-white mb-2">性价比分析 (价格 vs 评分)</h4>
-            <p className="text-sm text-slate-400 mb-6">气泡位置越靠右上角，代表价格越高且评分越高。右下角通常代表高性价比。</p>
-            <div className="h-80 w-full">
+          {/* Chart 1: Price vs Sentiment Scatter (QUADRANT ANALYSIS) */}
+          <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-6 col-span-1 lg:col-span-2 relative overflow-hidden">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-end mb-6">
+              <div>
+                <h4 className="text-lg font-semibold text-white mb-1">市场定位矩阵分析</h4>
+                <p className="text-sm text-slate-400">基于价格与评分生成的四象限图，助您快速判断产品价值属性。</p>
+              </div>
+              <div className="flex gap-4 text-xs mt-2 md:mt-0">
+                 <div className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-emerald-400"></div>高性价比</div>
+                 <div className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-indigo-400"></div>极致体验</div>
+                 <div className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-amber-400"></div>中规中矩</div>
+                 <div className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-rose-400"></div>溢价较高</div>
+              </div>
+            </div>
+
+            <div className="h-[450px] w-full relative z-10">
               <ResponsiveContainer width="100%" height="100%">
-                <ScatterChart margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
+                <ScatterChart margin={{ top: 20, right: 30, bottom: 20, left: 20 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
                   <XAxis 
                     type="number" 
                     dataKey="price" 
                     name="价格" 
-                    unit="" 
+                    domain={['auto', 'auto']} 
                     stroke="#94a3b8" 
-                    label={{ value: '价格 (估值)', position: 'bottom', fill: '#94a3b8', offset: 0 }}
+                    label={{ value: '价格 (RMB)', position: 'bottom', fill: '#94a3b8', offset: 0 }}
+                    tickFormatter={(val) => `¥${val}`}
                   />
                   <YAxis 
                     type="number" 
                     dataKey="score" 
                     name="评分" 
-                    domain={[0, 10]} 
+                    domain={[dataMin => Math.floor(dataMin - 1), 10]} 
                     stroke="#94a3b8"
-                    label={{ value: '评分 (1-10)', angle: -90, position: 'insideLeft', fill: '#94a3b8' }}
+                    label={{ value: '推荐评分 (1-10)', angle: -90, position: 'insideLeft', fill: '#94a3b8' }}
                   />
-                  <ZAxis type="number" range={[100, 400]} />
+                  <ZAxis type="number" range={[80, 80]} /> 
+                  
                   <Tooltip 
                     cursor={{ strokeDasharray: '3 3' }}
                     content={({ active, payload }) => {
                       if (active && payload && payload.length) {
                         const data = payload[0].payload;
                         return (
-                          <div className="bg-slate-900 border border-slate-700 p-3 rounded shadow-xl text-xs">
-                            <p className="font-bold text-white mb-1">{data.full_name}</p>
-                            <p className="text-emerald-400">评分: {data.score}/10</p>
-                            <p className="text-indigo-400">价格: {data.priceDisplay}</p>
+                          <div className="bg-slate-900/95 border border-slate-600 p-3 rounded-lg shadow-2xl text-xs backdrop-blur-sm z-50">
+                            <p className="font-bold text-base text-white mb-1">{data.full_name}</p>
+                            <p className="text-slate-300 mb-2">{data.release} 发布 | {data.positioning}</p>
+                            <div className="flex gap-4 border-t border-slate-700 pt-2">
+                                <div>
+                                    <span className="text-slate-500 block">价格</span>
+                                    <span className="text-indigo-400 font-mono text-sm">{data.priceDisplay}</span>
+                                </div>
+                                <div>
+                                    <span className="text-slate-500 block">评分</span>
+                                    <span className={`font-mono text-sm ${data.score >= 8 ? 'text-emerald-400' : 'text-amber-400'}`}>
+                                        {data.score}/10
+                                    </span>
+                                </div>
+                            </div>
                           </div>
                         );
                       }
                       return null;
                     }}
                   />
-                  <Scatter name="Products" data={chartData} fill="#8884d8">
-                    {chartData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.score >= 8 ? '#10b981' : entry.score >= 6 ? '#fbbf24' : '#ef4444'} />
-                    ))}
+                  
+                  {/* Quadrant Reference Lines */}
+                  <ReferenceLine x={stats.avgPrice} stroke="#475569" strokeDasharray="5 5">
+                    <Label value="平均价格" position="insideTopLeft" offset={10} fill="#64748b" fontSize={10} />
+                  </ReferenceLine>
+                  <ReferenceLine y={stats.avgScore} stroke="#475569" strokeDasharray="5 5">
+                    <Label value="平均评分" position="insideBottomRight" offset={10} fill="#64748b" fontSize={10} />
+                  </ReferenceLine>
+
+                  {/* Quadrant Labels (Background Text) */}
+                  {/* Top Left: Low Price, High Score */}
+                  <ReferenceLine x={stats.minPrice} y={10} stroke="none">
+                     <Label value="高性价比区" position="insideBottomRight" fill="#10b981" opacity={0.07} fontSize={32} fontWeight="bold" />
+                  </ReferenceLine>
+                  {/* Top Right: High Price, High Score */}
+                  <ReferenceLine x={stats.maxPrice} y={10} stroke="none">
+                     <Label value="旗舰体验区" position="insideBottomLeft" fill="#6366f1" opacity={0.07} fontSize={32} fontWeight="bold" />
+                  </ReferenceLine>
+                   {/* Bottom Right: High Price, Low Score */}
+                   <ReferenceLine x={stats.maxPrice} y={stats.avgScore - 0.5} stroke="none">
+                     <Label value="溢价较高区" position="insideTopLeft" fill="#f43f5e" opacity={0.07} fontSize={32} fontWeight="bold" />
+                  </ReferenceLine>
+
+
+                  <Scatter name="Products" data={chartData}>
+                    {chartData.map((entry, index) => {
+                        // Determine color based on quadrant logic roughly
+                        let color = '#fbbf24'; // Default Amber (Mid)
+                        if (entry.score >= stats.avgScore && entry.price <= stats.avgPrice) color = '#34d399'; // High Value (Emerald)
+                        else if (entry.score >= stats.avgScore && entry.price > stats.avgPrice) color = '#818cf8'; // Premium (Indigo)
+                        else if (entry.score < stats.avgScore && entry.price > stats.avgPrice) color = '#fb7185'; // Overpriced (Rose)
+                        
+                        return <Cell key={`cell-${index}`} fill={color} stroke="#fff" strokeWidth={1} />;
+                    })}
                   </Scatter>
                 </ScatterChart>
               </ResponsiveContainer>
@@ -151,13 +220,13 @@ export const ProductList: React.FC<ProductListProps> = ({ brandName, products })
           <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-6 col-span-1 lg:col-span-2">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
               <div>
-                <h4 className="text-lg font-semibold text-white">参数横向对比</h4>
-                <p className="text-sm text-slate-400">选择不同参数进行直观对比</p>
+                <h4 className="text-lg font-semibold text-white">参数对比横评</h4>
+                <p className="text-sm text-slate-400">切换下方选项以直观对比不同参数</p>
               </div>
               <select 
                 value={selectedSpec} 
                 onChange={(e) => setSelectedSpec(e.target.value)}
-                className="bg-slate-900 border border-slate-600 text-white text-sm rounded-lg focus:ring-indigo-500 focus:border-indigo-500 block p-2.5"
+                className="bg-slate-900 border border-slate-600 text-white text-sm rounded-lg focus:ring-indigo-500 focus:border-indigo-500 block p-2.5 min-w-[150px]"
               >
                 {availableSpecs.map(spec => (
                   <option key={spec} value={spec}>{spec}</option>
@@ -165,43 +234,70 @@ export const ProductList: React.FC<ProductListProps> = ({ brandName, products })
               </select>
             </div>
 
-            <div className="h-80 w-full">
+            <div className="h-[450px] w-full flex flex-col">
               {isNumericSpec(selectedSpec) ? (
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={chartData.map(d => ({...d, val: parseSpecValue(d.specValue)}))} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                  <BarChart data={chartData.map(d => ({...d, val: parseSpecValue(d.specValue)}))} margin={{ top: 20, right: 30, left: 20, bottom: 60 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#334155" />
-                    <XAxis dataKey="name" stroke="#94a3b8" fontSize={12} interval={0} angle={-15} textAnchor="end" />
+                    <XAxis 
+                      dataKey="name" 
+                      stroke="#94a3b8" 
+                      fontSize={12} 
+                      interval={0} 
+                      angle={-30} 
+                      textAnchor="end" 
+                      height={60}
+                    />
                     <YAxis stroke="#94a3b8" fontSize={12} />
                     <Tooltip 
-                      contentStyle={{ backgroundColor: '#1e293b', borderColor: '#334155', color: '#f1f5f9' }}
+                      cursor={{fill: '#334155', opacity: 0.2}}
+                      contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', color: '#f1f5f9', borderRadius: '8px' }}
                       formatter={(value: any) => [value, selectedSpec]}
                       labelFormatter={(label) => chartData.find(i => i.name === label)?.full_name || label}
                     />
-                    <Bar dataKey="val" fill="#6366f1" radius={[4, 4, 0, 0]}>
+                    <Bar dataKey="val" fill="#6366f1" radius={[4, 4, 0, 0]} animationDuration={1000}>
                       {chartData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={`hsl(${240 + (index * 20)}, 70%, 60%)`} />
+                        <Cell key={`cell-${index}`} fill={`hsl(${240 + (index * 15)}, 70%, 60%)`} />
                       ))}
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>
               ) : (
-                <div className="h-full overflow-y-auto">
-                  <table className="w-full text-sm text-left text-slate-400">
-                    <thead className="text-xs text-slate-500 uppercase bg-slate-900/50">
-                      <tr>
-                        <th className="px-4 py-3">型号</th>
-                        <th className="px-4 py-3 text-indigo-400">{selectedSpec}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {chartData.map((item, idx) => (
-                        <tr key={idx} className="border-b border-slate-700 hover:bg-slate-700/50">
-                          <td className="px-4 py-3 font-medium text-white">{item.full_name}</td>
-                          <td className="px-4 py-3">{item.specValue || '-'}</td>
+                <div className="flex-1 overflow-hidden rounded-lg border border-slate-700/50 bg-slate-900/30">
+                  <div className="h-full overflow-y-auto custom-scrollbar">
+                    <table className="w-full text-left border-collapse">
+                      <thead className="bg-slate-900/90 sticky top-0 z-10 shadow-sm backdrop-blur-sm">
+                        <tr>
+                          <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider w-1/3 border-b border-slate-700">
+                            产品型号
+                          </th>
+                          <th className="px-6 py-4 text-xs font-bold text-indigo-400 uppercase tracking-wider w-2/3 border-b border-slate-700">
+                            {selectedSpec}
+                          </th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800">
+                        {chartData.map((item, idx) => (
+                          <tr 
+                            key={idx} 
+                            className="group transition-colors hover:bg-slate-800/60"
+                          >
+                            <td className="px-6 py-4">
+                              <div className="flex items-center gap-3">
+                                <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 opacity-50 group-hover:opacity-100 transition-opacity"></span>
+                                <span className="font-medium text-slate-200 group-hover:text-white transition-colors">
+                                  {item.full_name}
+                                </span>
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 text-sm text-slate-400 group-hover:text-slate-300 leading-relaxed">
+                              {item.specValue || <span className="text-slate-600">-</span>}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               )}
             </div>
