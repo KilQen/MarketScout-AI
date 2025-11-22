@@ -16,6 +16,7 @@ export interface Product {
   positioning: string;
   core_specs: string;
   specs: Record<string, string | number>; // Structured specs for comparison
+  radar: { name: string; value: number }[]; // New field for radar chart
   user_sentiment: string;
   sentiment_score: number; // 1-10 estimated score
   pros: string[];
